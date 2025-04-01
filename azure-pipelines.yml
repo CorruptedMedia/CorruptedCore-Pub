@@ -1,0 +1,55 @@
+trigger:
+  branches:
+    include:
+      - main  # Specify the branch to trigger the pipeline
+
+  paths:
+    exclude:
+      - package.json
+
+pool:
+  name: 'Default'
+
+steps:
+- checkout: self
+  clean: true
+  displayName: 'Clean Checkout'
+
+# Step 2: Increment the patch version in package.json
+- script: |
+    node -e "const fs = require('fs'); const path = './package.json'; const packageJson = JSON.parse(fs.readFileSync(path)); const [major, minor, patch] = packageJson.version.split('.').map(Number); const newVersion = major + '.' + minor + '.' + (patch + 1); packageJson.version = newVersion; fs.writeFileSync(path, JSON.stringify(packageJson, null, 2)); console.log('New version:', newVersion);"
+  displayName: 'Increment patch version'
+
+# Step 3: Fetch, Stash, Rebase, Commit, Tag, and Push the new version
+- script: |
+
+    for /f "delims=" %%i in ('node -e "console.log(require('./package.json').version);"') do set NEW_VERSION=%%i
+    echo New version: %NEW_VERSION%
+
+
+    git add package.json
+    git stash --include-untracked
+
+
+    git fetch origin
+    git checkout main
+    git pull --rebase origin main
+
+
+    git stash pop
+
+
+    git add package.json
+    git commit -m "chore: bump version to %NEW_VERSION%"
+    git tag -a "v%NEW_VERSION%" -m "Release version %NEW_VERSION%"
+
+    git push origin main
+    git push --follow-tags
+  displayName: 'Fetch, Stash, Rebase, Commit, Tag, and Push New Version'
+# Publish to Verdaccio registry using the service connection
+- task: Npm@1
+  inputs:
+    command: publish
+    publishRegistry: useExternalRegistry
+    publishEndpoint: 'NPMCMP'  # Your Service Connection name here
+  displayName: 'Publish to Verdaccio Registry'
